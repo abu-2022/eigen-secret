@@ -1,11 +1,11 @@
 const createBlakeHash = require("blake-hash");
-const {buildEddsa} = require("circomlibjs");
-import {prepareJson, uint8Array2Bigint} from "@eigen-secret/core/dist/utils";
-import {JoinSplitCircuit} from "@eigen-secret/core/dist/join_split";
-import {UpdateStatusCircuit} from "@eigen-secret/core/dist/update_state";
-import {Prover} from "@eigen-secret/core/dist/prover";
-import {Note, NoteState} from "@eigen-secret/core/dist/note";
-import {Transaction} from "@eigen-secret/core/dist/transaction";
+const { buildEddsa } = require("circomlibjs");
+import { prepareJson, uint8Array2Bigint } from "@eigen-secret/core/dist/utils";
+import { JoinSplitCircuit } from "@eigen-secret/core/dist/join_split";
+import { UpdateStatusCircuit } from "@eigen-secret/core/dist/update_state";
+import { Prover } from "@eigen-secret/core/dist/prover";
+import { Note, NoteState } from "@eigen-secret/core/dist/note";
+import { Transaction } from "@eigen-secret/core/dist/transaction";
 import {
     AccountCircuit,
     compress as accountCompress,
@@ -13,13 +13,15 @@ import {
     SecretAccount,
     SigningKey
 } from "@eigen-secret/core/dist/account";
-import {RollupSC} from "@eigen-secret/core/dist/rollup.sc";
-import {pad} from "@eigen-secret/core/dist/state_tree";
-import {poseidonSponge} from "@eigen-secret/core/dist/sponge_poseidon";
-import {assert} from "chai";
+import { RollupSC } from "@eigen-secret/core/dist/rollup.sc";
+import { pad } from "@eigen-secret/core/dist/state_tree";
+import { poseidonSponge } from "@eigen-secret/core/dist/sponge_poseidon";
+import { expect, assert } from "chai";
 
 const axios = require("axios").default;
-
+/**
+ * Update the status of the user account and transaction
+ */
 export class StateTreeClient {
     serverAddr: any;
 
@@ -74,6 +76,9 @@ export class StateTreeClient {
     }
 }
 
+/**
+ * Get or update the user's Note information
+ */
 export class NoteClient {
     serverAddr: any;
 
@@ -141,6 +146,9 @@ export class NoteClient {
     }
 }
 
+/**
+ * Create a new transaction
+ */
 export class TransactionClient {
     serverAddr: any;
 
@@ -185,6 +193,9 @@ export class TransactionClient {
     }
 }
 
+/**
+ * SecretSDK interface
+ */
 export class SecretSDK {
     alias: string;
     account: SecretAccount;
@@ -193,7 +204,6 @@ export class SecretSDK {
     trans: TransactionClient;
     circuitPath: string;
     rollupSC: RollupSC;
-    smtVerifierContract: any;
     keysFound: any;
     valuesFound: any;
     siblings: any;
@@ -211,7 +221,7 @@ export class SecretSDK {
         poseidon3Address: string,
         poseidon6Address: string,
         rollupAddress: string,
-        testTokenAddress: string = ""
+        smtVerifierAddress: string = ""
     ) {
         this.alias = alias;
         this.account = account;
@@ -220,13 +230,15 @@ export class SecretSDK {
         this.trans = new TransactionClient(serverAddr);
         this.circuitPath = circuitPath;
         this.rollupSC = new RollupSC(eddsa, alias, userAccount, spongePoseidonAddress, tokenRegistryAddress,
-            poseidon2Address, poseidon3Address, poseidon6Address, rollupAddress, testTokenAddress);
-        this.smtVerifierContract = undefined;
+            poseidon2Address, poseidon3Address, poseidon6Address, rollupAddress, smtVerifierAddress);
         this.keysFound = [];
         this.valuesFound = [];
         this.siblings = [];
     }
-
+    /**
+     * connect the rollup contracts
+     * @param {Object} contractABI the contracts ABI directory
+     */
     async initialize(
         contractABI: any
     ) {
@@ -234,29 +246,17 @@ export class SecretSDK {
             contractABI.spongePoseidonContractABI,
             contractABI.tokenRegistryContractABI,
             contractABI.rollupContractABI,
-            contractABI.testTokenContractABI
+            contractABI.testTokenContractABI,
+            contractABI.smtVerifierContractABI
         );
-        /*
-        let smtVerifierContractFactory = new ethers.ContractFactory(
-            _smtVerifierContract.abi,
-            _smtVerifierContract.bytecode,
-            this.rollupSC.userAccount
-        );
-        this.smtVerifierContract = await smtVerifierContractFactory.deploy(
-            this.rollupSC.poseidon2Address,
-            this.rollupSC.poseidon3Address
-        );
-        await this.smtVerifierContract.deployed();
-        */
     }
 
-    /*
-    static async newSigningKey() {
-        let eddsa = await buildEddsa();
-        return new SigningKey(eddsa)
-    }
-    */
-
+    /**
+     * obtain the Notes value
+     * @param {Object} ctx
+     * @param {number} assetId the token to be calculated
+     * @return {bigint} the notes value
+     */
     async getNotesValue(ctx: any, assetId: number) {
         let notes: Array<Note> = [];
         let noteState = [NoteState.PROVED]
@@ -283,17 +283,26 @@ export class SecretSDK {
         return balance;
     }
 
-    // create proof for general transaction
-    async deposit(ctx: any, receiver: string, value: string, assetId: number, nonce: number) {
+    /**
+     * create proof for the deposit of the asset from L1 to L2
+     *
+     * @param {Object} ctx
+     * @param {string} receiver
+     * @param {bigint} value the amount to be deposited
+     * @param {number} assetId the token to be deposited
+     * @param {number} nonce the nonce of current transaction, usually obtained from Wallet like Metamask
+     * @return {Object} a batch of proof
+     */
+    async deposit(ctx: any, receiver: string, value: bigint, assetId: number, nonce: number) {
         let eddsa = await buildEddsa();
         let proofId = JoinSplitCircuit.PROOF_ID_TYPE_DEPOSIT;
         let tmpP = this.account.accountKey.pubKey.unpack(eddsa.babyJub);
         let tmpPub = [eddsa.F.toObject(tmpP[0]), eddsa.F.toObject(tmpP[1])];
 
-        await this.rollupSC.deposit(tmpPub, assetId, Number(value), nonce);
+        console.log("begin to deposit");
+        await this.rollupSC.deposit(tmpPub, assetId, value, nonce);
 
         let accountRequired = false;
-        console.log("alias: ", this.alias, this.alias);
         const aliasHashBuffer = eddsa.pruneBuffer(createBlakeHash("blake512").update(this.alias).digest().slice(0, 32));
         const aliasHash = await uint8Array2Bigint(aliasHashBuffer);
 
@@ -316,15 +325,15 @@ export class SecretSDK {
             aliasHash,
             assetId,
             assetId,
-            BigInt(value),
+            value,
             this.account.signingKey.pubKey,
-            BigInt(value),
+            value,
             new EigenAddress(receiver),
             notes,
             accountRequired
         );
 
-        let _proof: string[] = [];
+        let batchProof: string[] = [];
         for (const input of inputs) {
             const proof = await this.state.updateStateTree(
                 ctx,
@@ -337,7 +346,7 @@ export class SecretSDK {
             // console.log(proof);
             let circuitInput = input.toCircuitInput(eddsa.babyJub, proof);
             let proofAndPublicSignals = await Prover.updateState(this.circuitPath, circuitInput);
-            _proof.push(Prover.serialize(proofAndPublicSignals));
+            batchProof.push(Prover.serialize(proofAndPublicSignals));
 
             this.keysFound.push(input.outputNCs[0]);
             this.valuesFound.push(input.outputNotes[0].inputNullifier);
@@ -390,10 +399,19 @@ export class SecretSDK {
             await this.note.updateNote(ctx, _notes);
         }
         await this.rollupSC.processDeposits(this.rollupSC.userAccount, this.keysFound, this.valuesFound, this.siblings);
-        return _proof;
+        return batchProof;
     }
 
-    async send(ctx: any, receiver: string, value: string, assetId: number) {
+    /**
+     * create proof for sending the asset to the receiver in L2
+     *
+     * @param {Object} ctx
+     * @param {string} receiver
+     * @param {bigint} value the amount to be sent
+     * @param {number} assetId the token to be sent
+     * @return {Object} a batch of proof
+     */
+    async send(ctx: any, receiver: string, value: bigint, assetId: number) {
         let eddsa = await buildEddsa();
         let proofId = JoinSplitCircuit.PROOF_ID_TYPE_SEND;
         let accountRequired = false;
@@ -422,13 +440,13 @@ export class SecretSDK {
             0,
             0n,
             undefined,
-            BigInt(value),
+            value,
             _receiver,
             notes,
             accountRequired
         );
 
-        let _proof: string[] = [];
+        let batchProof: string[] = [];
         for (const input of inputs) {
             const proof = await this.state.updateStateTree(
                 ctx,
@@ -440,7 +458,7 @@ export class SecretSDK {
             );
             let circuitInput = input.toCircuitInput(eddsa.babyJub, proof);
             let proofAndPublicSignals = await Prover.updateState(this.circuitPath, circuitInput);
-            _proof.push(Prover.serialize(proofAndPublicSignals));
+            batchProof.push(Prover.serialize(proofAndPublicSignals));
             let transaction = new Transaction(input.outputNotes, this.account.signingKey);
             let txdata = await transaction.encrypt();
 
@@ -480,10 +498,19 @@ export class SecretSDK {
             ]
             await this.note.updateNote(ctx, _notes);
         }
-        return _proof;
+        return batchProof;
     }
 
-    async withdraw(ctx: any, receiver: string, value: string, assetId: number) {
+    /**
+     * create proof for withdrawing asset from L2 to L1
+     *
+     * @param {Object} ctx
+     * @param {string} receiver
+     * @param {bigint} value the amount to be withdrawn
+     * @param {number} assetId the token to be withdrawn
+     * @return {Object} a batch of proof
+     */
+    async withdraw(ctx: any, receiver: string, value: bigint, assetId: number) {
         let eddsa = await buildEddsa();
         let proofId = JoinSplitCircuit.PROOF_ID_TYPE_WITHDRAW;
         let accountRequired = false;
@@ -511,7 +538,7 @@ export class SecretSDK {
             aliasHash,
             assetId,
             assetId,
-            BigInt(value),
+            value,
             this.account.signingKey.pubKey,
             0n,
             this.account.signingKey.pubKey,
@@ -519,14 +546,13 @@ export class SecretSDK {
             accountRequired
         );
 
-        let _proof: string[] = [];
+        let batchProof: string[] = [];
         let lastKeys: Array<bigint> = [];
-        let lastSiblings: Array<Array<bigint>> = [];
-        let lastValues: Array<bigint> = [];
         let keysFound = [];
         let valuesFound = [];
+        let dataTreeRootsFound: Array<bigint> = [];
+        let lastDataTreeRoot: bigint = 0n;
         let siblings = [];
-        let lastDataTreeRoot: any;
 
         for (const input of inputs) {
             const proof = await this.state.updateStateTree(
@@ -540,35 +566,33 @@ export class SecretSDK {
             );
             // console.log(proof);
             let rawSiblings = proof.siblings;
-            console.log("rawSiblings", rawSiblings);
+            // console.log("rawSiblings", rawSiblings);
             let paddedSiblings = [
                 pad(rawSiblings[0]),
                 pad(rawSiblings[1])
             ];
-            console.log("paddedSiblings", paddedSiblings, rawSiblings);
+            // console.log("paddedSiblings", paddedSiblings, rawSiblings);
             proof.siblings = paddedSiblings;
             proof.siblingsAC = pad(proof.siblingsAC);
             let circuitInput = input.toCircuitInput(eddsa.babyJub, proof);
-            console.log(circuitInput);
+            // console.log(circuitInput);
             let proofAndPublicSignals = await Prover.updateState(this.circuitPath, circuitInput);
-            _proof.push(Prover.serialize(proofAndPublicSignals));
+            batchProof.push(Prover.serialize(proofAndPublicSignals));
 
             keysFound.push(input.outputNCs[0]);
             valuesFound.push(input.outputNotes[0].inputNullifier);
             keysFound.push(input.outputNCs[1]);
             valuesFound.push(input.outputNotes[1].inputNullifier);
-            lastDataTreeRoot = proof.dataTreeRoot;
+            dataTreeRootsFound.push(BigInt(proof.dataTreeRoot));
+            lastDataTreeRoot = BigInt(proof.dataTreeRoot);
             lastKeys = input.outputNCs;
-            lastValues = [input.outputNotes[0].inputNullifier, input.outputNotes[1].inputNullifier];
 
-            lastSiblings = []
             for (const item of rawSiblings) {
                 let tmpSiblings = [];
                 for (const sib of item) {
                     tmpSiblings.push(sib);
                 }
-                lastSiblings.push(tmpSiblings);
-                siblings.push(pad(tmpSiblings));
+                siblings.push(tmpSiblings);
             }
 
             let transaction = new Transaction(input.outputNotes, this.account.signingKey);
@@ -621,35 +645,42 @@ export class SecretSDK {
             outputNc2: lastKeys[1], // lastProof.publicSignals[5]
             publicAssetId: assetId, // lastProof.publicSignals[7]
             dataTreeRoot: lastDataTreeRoot,
-            values: lastValues,
-            siblings: lastSiblings
+            roots: dataTreeRootsFound,
+            keys: keysFound,
+            values: valuesFound,
+            siblings: siblings
         }
 
         // FIXME hash sibings and tree
+        let hashInput = [
+            BigInt(txInfo.publicValue),
+            txInfo.publicOwner[0],
+            txInfo.publicOwner[1],
+            txInfo.outputNc1,
+            txInfo.outputNc2,
+            BigInt(txInfo.publicAssetId)
+        ];
+        for (let i = 0; i < txInfo.roots.length; i ++) {
+            hashInput.push(txInfo.roots[i])
+        }
         let msg = await poseidonSponge(
-            [
-                BigInt(txInfo.publicValue),
-                txInfo.publicOwner[0],
-                txInfo.publicOwner[1],
-                txInfo.outputNc1,
-                txInfo.outputNc2,
-                txInfo.dataTreeRoot,
-                BigInt(txInfo.publicAssetId)
-            ]
+            hashInput
         );
-        // FIXME @Zelig
-        // DEBUG: check by smt verifier
-        //let tmpRoot = await this.smtVerifierContract.connect(this.rollupSC.userAccount).smtVerifier(
-        //    txInfo.siblings[0], txInfo.outputNc1,
-        //    txInfo.values[0], 0, 0, false, false, 20
-        //)
-        //expect(tmpRoot.toString()).to.eq(txInfo.dataTreeRoot.toString());
 
-        //tmpRoot = await this.smtVerifierContract.connect(this.rollupSC.userAccount).smtVerifier(
-        //    txInfo.siblings[1], txInfo.outputNc2,
-        //    txInfo.values[1], 0, 0, false, false, 20
-        //)
-        //expect(tmpRoot.toString()).to.eq(txInfo.dataTreeRoot.toString());
+        // DEBUG: check by smt verifier
+        console.log("txInfo", txInfo);
+        let tmpRoot = await this.rollupSC.SMT.smtVerifier(
+            txInfo.siblings[0], txInfo.outputNc1,
+            txInfo.values[0], 0, 0, false, false, 20
+        )
+        expect(tmpRoot.toString()).to.eq(txInfo.roots[0].toString());
+
+        tmpRoot = await this.rollupSC.SMT.smtVerifier(
+            txInfo.siblings[1], txInfo.outputNc2,
+            txInfo.values[1], 0, 0, false, false, 20
+        )
+        expect(tmpRoot.toString()).to.eq(txInfo.roots[0].toString());
+        console.log("check tmpRoot done");
 
         let sig = await this.account.signingKey.sign(eddsa.F.e(msg));
         let input = {
@@ -667,10 +698,49 @@ export class SecretSDK {
             txInfo,
             proofAndPublicSignals
         );
-        return _proof;
+        return batchProof;
+    }
+
+    /**
+     * register testToken to rollup contract
+     */
+    async setRollupNC() {
+        await this.rollupSC.setRollupNC();
+    }
+
+    /**
+     * register testToken to rollup contract
+     * @param {string} token
+     */
+    async registerToken(token: string) {
+        await this.rollupSC.registerToken(token);
+    }
+
+    /**
+     * register testToken to rollup contract
+     * @param {string} token
+     */
+    async approveToken(token: string) {
+        return await this.rollupSC.approveToken(token);
+    }
+
+    async approve(token: string, value: bigint) {
+        return await this.rollupSC.approve(token, value);
+    }
+
+    async getRegisteredToken(id: bigint) {
+        return await this.rollupSC.getRegisteredToken(id);
     }
 
     // create proof for account operation, create, migrate or update
+    /**
+     * create proof for the secret account created
+     *
+     * @param {Object} ctx
+     * @param {SigningKey} newSigningKey
+     * @param {SigningKey} newSigningKey2
+     * @return {Object} a batch of proof
+     */
     async createAccount(ctx: any, newSigningKey: SigningKey, newSigningKey2: SigningKey) {
         let eddsa = await buildEddsa();
         const F = eddsa.F;
@@ -699,7 +769,7 @@ export class SecretSDK {
         let circuitInput = input.toCircuitInput(eddsa.babyJub, smtProof);
         // create final proof
         let proofAndPublicSignals = await Prover.updateState(this.circuitPath, circuitInput);
-        if (!Prover.verifyState(proofAndPublicSignals)) {
+        if (!Prover.verifyState(this.circuitPath, proofAndPublicSignals)) {
             throw new Error("Invalid proof")
         }
 
@@ -714,6 +784,14 @@ export class SecretSDK {
         return Prover.serialize(proofAndPublicSignals);
     }
 
+    /**
+     * create proof for the user updating their signing key
+     *
+     * @param {Object} ctx
+     * @param {SigningKey} newSigningKey
+     * @param {SigningKey} newSigningKey2
+     * @return {Object} a batch of proof
+     */
     async updateAccount(ctx: any, newSigningKey: SigningKey, newSigningKey2: SigningKey) {
         let eddsa = await buildEddsa();
         let proofId = AccountCircuit.PROOF_ID_TYPE_UPDATE;
@@ -737,12 +815,19 @@ export class SecretSDK {
         // create final proof
         let proofAndPublicSignals = await Prover.updateState(this.circuitPath, inputJson);
 
-        if (!Prover.verifyState(proofAndPublicSignals)) {
+        if (!Prover.verifyState(this.circuitPath, proofAndPublicSignals)) {
             throw new Error("Invalid proof")
         }
         return Prover.serialize(proofAndPublicSignals);
     }
 
+    /**
+     * create proof for migrating the account to another ETH address
+     *
+     * @param {Object} ctx
+     * @param {SigningKey} newAccountKey the account key that which user renews
+     * @return {Object} a batch of proof
+     */
     async migrateAccount(ctx: any, newAccountKey: SigningKey) {
         let eddsa = await buildEddsa();
         let proofId = AccountCircuit.PROOF_ID_TYPE_MIGRATE;
@@ -766,7 +851,7 @@ export class SecretSDK {
         // create final proof
         let proofAndPublicSignals = await Prover.updateState(this.circuitPath, inputJson);
 
-        if (!Prover.verifyState(proofAndPublicSignals)) {
+        if (!Prover.verifyState(this.circuitPath, proofAndPublicSignals)) {
             throw new Error("Invalid proof")
         }
         return Prover.serialize(proofAndPublicSignals);

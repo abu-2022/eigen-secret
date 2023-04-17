@@ -13,8 +13,8 @@ export class RollupSC {
     userAccount: any;
     rollup: any;
     tokenRegistry: any;
-    testToken: any;
     spongePoseidon: any;
+    SMT: any;
     eddsa: any;
 
     alias: string;
@@ -26,7 +26,9 @@ export class RollupSC {
     poseidon3Address: string;
     poseidon6Address: string;
     rollupAddress: string;
-    testTokenAddress: string;
+    smtVerifierAddress: string;
+
+    tokenERC20ABI: any;
 
     constructor(
         eddsa: any,
@@ -38,15 +40,15 @@ export class RollupSC {
         poseidon3Address: string,
         poseidon6Address: string,
         rollupAddress: string,
-        testTokenAddress: string = ""
+        smtVerifierAddress: string = ""
     ) {
         this.eddsa = eddsa;
         this.alias = alias;
         this.userAccount = userAccount;
         this.rollup = undefined;
         this.tokenRegistry = undefined;
-        this.testToken = undefined;
         this.spongePoseidon = undefined;
+        this.SMT = undefined;
         this.aliasHash = undefined;
 
         this.spongePoseidonAddress = spongePoseidonAddress;
@@ -55,15 +57,18 @@ export class RollupSC {
         this.poseidon3Address = poseidon2Address;
         this.poseidon6Address = poseidon2Address;
         this.rollupAddress = rollupAddress;
-        this.testTokenAddress = testTokenAddress;
+        this.smtVerifierAddress = smtVerifierAddress;
+        this.tokenERC20ABI = undefined;
     }
 
     async initialize(
         spongePoseidonContractABI: any,
         tokenRegistryContractABI: any,
         rollupContractABI: any,
-        testTokenContractABI: any
+        tokenContractABI: any,
+        smtVerifierContractABI: any
     ) {
+        this.tokenERC20ABI = tokenContractABI;
         const aliasHashBuffer = this.eddsa.pruneBuffer(
             createBlakeHash("blake512").update(this.alias).digest().slice(0, 32)
         );
@@ -76,21 +81,71 @@ export class RollupSC {
         );
         this.rollup = new ethers.Contract(this.rollupAddress, rollupContractABI, this.userAccount);
 
-        if (this.testTokenAddress != "") {
-            this.testToken = new ethers.Contract(this.testTokenAddress, testTokenContractABI, this.userAccount);
+        if (this.smtVerifierAddress != "") {
+            this.SMT = new ethers.Contract(this.smtVerifierAddress, smtVerifierContractABI, this.userAccount);
         }
     }
 
-    async deposit(pubkeyEigenAccountKey: bigint[], assetId: number, value: number, nonce: number) {
+    async setRollupNC() {
+        let tx = await this.tokenRegistry.
+            connect(this.userAccount).setRollupNC(this.rollup.address);
+        await tx.wait();
+    }
+
+    async getRegisteredToken(id: bigint) {
+        return await this.tokenRegistry.connect(this.userAccount).
+            registeredTokens(id)
+    }
+
+    // customize tokenAddress
+    async registerToken(tokenAddress: string) {
+        let info = await this.tokenRegistry.
+            connect(this.userAccount).
+            pendingTokens(tokenAddress);
+        if (info) {
+            return;
+        }
+
+        let registerToken = await this.rollup.connect(this.userAccount).
+            registerToken(
+                tokenAddress,
+                { from: this.userAccount.address }
+        )
+        assert(registerToken, "token registration failed");
+        await registerToken.wait();
+    }
+
+    /**
+     * customize tokenAddress
+     * @param {string} tokenAddress token address
+     * @return { bigint } assetId
+     */
+    async approveToken(tokenAddress: string) {
+        let approveToken = await this.rollup.connect(this.userAccount).approveToken(
+            tokenAddress, { from: this.userAccount.address }
+        )
+        let tx = await approveToken.wait();
+        let abi = [ "event RegisteredToken(uint publicAssetId, address tokenContract)" ];
+        const iface = new ethers.utils.Interface(abi)
+        const eventData = iface.decodeEventLog("RegisteredToken", tx.logs[0].data, tx.logs[0].topics)
+        return eventData["publicAssetId"];
+    }
+
+    async approve(tokenAddress: string, value: bigint) {
         let userAccount = this.userAccount;
         assert(this.rollup);
-        console.log(this.testToken);
-        let approveToken = await this.testToken.connect(userAccount).approve(
+        let testToken = new ethers.Contract(tokenAddress, this.tokenERC20ABI, this.userAccount);
+        let approveToken = await testToken.connect(userAccount).approve(
             this.rollup.address, value,
             {from: userAccount.address}
         )
-        console.log(approveToken);
         assert(approveToken, "approveToken failed")
+        return approveToken;
+    }
+
+    async deposit(pubkeyEigenAccountKey: bigint[], assetId: number, value: bigint, nonce: number) {
+        let userAccount = this.userAccount;
+        assert(this.rollup);
         let deposit0 = await this.rollup.connect(userAccount).deposit(
             pubkeyEigenAccountKey,
             assetId,

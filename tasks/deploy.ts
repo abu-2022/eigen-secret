@@ -1,7 +1,7 @@
 import { task } from "hardhat/config";
 import { deploySpongePoseidon, deployPoseidons } from "@eigen-secret/core/dist/deploy_poseidons.util";
 
-const defaultContractFile = ".contract.json";
+import { defaultContractFile } from "./common";
 const fs = require("fs");
 
 task("deploy", "Deploy all smart contract")
@@ -54,6 +54,15 @@ task("deploy", "Deploy all smart contract")
         testTokenAddress = testToken.address;
     }
     contractJson.set("testToken", testTokenAddress);
+
+    // DEBUG only
+    let smtVerifierContractFactory = await ethers.getContractFactory("SMT");
+    let smtVerifierContract = await smtVerifierContractFactory.deploy(
+        poseidonContracts[0].address,
+        poseidonContracts[1].address
+    );
+    await smtVerifierContract.deployed();
+    contractJson.set("smtVerifier", smtVerifierContract.address);
 
     console.log(contractJson);
     fs.writeFileSync(contractFile, JSON.stringify(Object.fromEntries(contractJson)))

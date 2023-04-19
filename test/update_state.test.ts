@@ -1,4 +1,4 @@
-import * as test from "@eigen-secret/core/dist/test";
+import * as test from "./test";
 import * as utils from "@eigen-secret/core/dist/utils";
 import { Note } from "@eigen-secret/core/dist/note";
 import { assert, expect } from "chai";
@@ -121,6 +121,7 @@ describe("Test JoinSplit Circuit", function () {
                 input.outputNotes[1].inputNullifier,
                 acStateKey
             );
+            console.log(input.toCircuitInput(babyJub, proof));
             await utils.executeCircuit(circuit, input.toCircuitInput(babyJub, proof));
         }
         let confirmedNote: Note[] = [];
@@ -191,6 +192,7 @@ describe("Test JoinSplit Circuit", function () {
                 input.outputNotes[1].inputNullifier,
                 acStateKey
             );
+            console.log(input.toCircuitInput(babyJub, proof));
             await utils.executeCircuit(circuit, input.toCircuitInput(babyJub, proof));
         }
     })
